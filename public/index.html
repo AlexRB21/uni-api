@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UniMarket · Estado de la API</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+  body { min-height: 100vh; background: linear-gradient(135deg, #1565c0, #1e88e5); display: flex; justify-content: center; padding: 24px 16px; }
+  .card { background: #fff; border-radius: 16px; width: 100%; max-width: 560px; padding: 28px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  h1 { font-size: 1.3rem; color: #0d47a1; margin-bottom: 4px; }
+  .sub { color: #666; font-size: .85rem; margin-bottom: 20px; }
+  .status { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: 12px; font-weight: 600; margin-bottom: 20px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .ok { background: #e8f5e9; color: #2e7d32; } .ok .dot { background: #43a047; box-shadow: 0 0 8px #43a047; }
+  .bad { background: #ffebee; color: #c62828; } .bad .dot { background: #e53935; }
+  .wait { background: #fff8e1; color: #f9a825; } .wait .dot { background: #fbc02d; animation: pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .row { display: flex; gap: 8px; margin-bottom: 16px; }
+  input[type=email] { flex: 1; padding: 12px; border: 2px solid #e3f2fd; border-radius: 10px; font-size: .95rem; outline: none; }
+  input[type=email]:focus { border-color: #1e88e5; }
+  button { padding: 12px 18px; border: none; border-radius: 10px; background: #1565c0; color: #fff; font-weight: 600; cursor: pointer; }
+  button.ghost { background: #e3f2fd; color: #1565c0; }
+  button:disabled { opacity: .5; cursor: wait; }
+  pre { background: #0d1b2a; color: #a5d6a7; padding: 14px; border-radius: 10px; font-size: .75rem; overflow-x: auto; max-height: 280px; display: none; white-space: pre-wrap; }
+  .meta { font-size: .75rem; color: #888; margin-top: 8px; }
+</style>
+<base target="_blank">
+</head>
+<body>
+<div class="card">
+  <h1>🔌 UniMarket — Estado de la API</h1>
+  <p class="sub">Panel de monitoreo del backend universitario</p>
+
+  <div id="status" class="status wait"><span class="dot"></span><span id="statusText">Verificando API…</span></div>
+
+  <div class="row">
+    <input type="email" id="email" placeholder="probar correo… @autonoma.edu.pe">
+    <button id="btnCheck" onclick="checkEmail()">Validar</button>
+  </div>
+
+  <div class="row">
+    <button class="ghost" style="flex:1" onclick="ping()">🔄 Re-verificar API</button>
+  </div>
+
+  <pre id="out"></pre>
+  <p class="meta" id="meta"></p>
+</div>
+
+<script>
+  // 🔹 Deteccion automatica de origen:
+  //    - Si la pagina se sirve desde Render o localhost -> mismo origen (sin CORS)
+  //    - Si se abre desde Firebase Hosting -> apunta a Render
+  const IS_SAME_ORIGIN = location.hostname.includes('onrender.com')
+      || location.hostname === 'localhost'
+      || location.hostname === '127.0.0.1';
+  const API = IS_SAME_ORIGIN ? '' : 'https://api-ua.onrender.com';
+  const KEY = 'UNIMARKET-2026-CAMBIA-ESTA-CLAVE';
+
+  const status = document.getElementById('status');
+  const statusText = document.getElementById('statusText');
+  const out = document.getElementById('out');
+  const meta = document.getElementById('meta');
+
+  function setState(cls, msg) {
+    status.className = 'status ' + cls;
+    statusText.textContent = msg;
+  }
+
+  async function ping() {
+    setState('wait', 'Verificando API… (si duerme, tarda ~30s en despertar)');
+    out.style.display = 'none';
+    const t0 = performance.now();
+    try {
+      const r = await fetch(API + '/api/health', { headers: { 'x-api-key': KEY } });
+      const ms = Math.round(performance.now() - t0);
+      const j = await r.json();
+      if (r.ok && j.ok && j.db === 'up') {
+        setState('ok', '✅ API en línea — MySQL conectado (' + ms + ' ms)');
+      } else if (r.ok) {
+        setState('bad', '⚠️ API responde pero MySQL está caído');
+        out.style.display = 'block'; out.textContent = JSON.stringify(j, null, 2);
+      } else {
+        setState('bad', '❌ API respondió con error ' + r.status);
+      }
+      meta.textContent = 'Última verificación: ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      setState('bad', '❌ API no alcanzable — revisa que el backend esté encendido');
+      meta.textContent = String(e);
+    }
+  }
+
+  async function checkEmail() {
+    const email = document.getElementById('email').value.trim().toLowerCase();
+    if (!email) return;
+    const btn = document.getElementById('btnCheck');
+    btn.disabled = true; btn.textContent = '…';
+    try {
+      const r = await fetch(API + '/api/student?email=' + encodeURIComponent(email),
+        { headers: { 'x-api-key': KEY } });
+      const j = await r.json();
+      out.style.display = 'block';
+      out.textContent = JSON.stringify(j, null, 2);
+      if (j.found) setState('ok', '✅ ' + j.student.nombreCompleto + ' — ' + j.student.carrera);
+      else setState('bad', '🚫 Correo NO encontrado en la universidad');
+    } catch (e) {
+      out.style.display = 'block'; out.textContent = String(e);
+    }
+    btn.disabled = false; btn.textContent = 'Validar';
+  }
+
+  document.getElementById('email').addEventListener('keydown', e => {
+    if (e.key === 'Enter') checkEmail();
+  });
+
+  ping();
+</script>
+</body>
+</html>
